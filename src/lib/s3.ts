@@ -1,9 +1,11 @@
 // S3 with local filesystem fallback for development
+// On Vercel (no S3): files are processed in-memory only; no permanent storage
 
 import path from "path";
 import fs from "fs/promises";
 
 const USE_S3 = !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_S3_BUCKET);
+const IS_VERCEL = !!process.env.VERCEL;
 const LOCAL_UPLOAD_DIR = path.join(process.cwd(), "public", "uploads");
 
 async function ensureLocalDir(dir: string) {
@@ -37,7 +39,15 @@ export async function uploadFile(
     return { key, url: `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}` };
   }
 
-  // Local fallback
+  // On Vercel without S3: return a placeholder (file is parsed in-memory, not stored)
+  if (IS_VERCEL) {
+    const { v4: uuidv4 } = await import("uuid");
+    const ext = originalName.split(".").pop();
+    const key = `uploads/${userId}/${uuidv4()}.${ext}`;
+    return { key, url: "" }; // No permanent URL; specs extracted from buffer
+  }
+
+  // Local dev fallback — write to public/uploads
   const { v4: uuidv4 } = await import("uuid");
   const ext = originalName.split(".").pop();
   const filename = `${uuidv4()}.${ext}`;
@@ -70,7 +80,13 @@ export async function uploadPdf(buffer: Buffer, userId: string, quoteId: string)
     return getSignedUrl(s3, new GetObjectCommand({ Bucket: process.env.AWS_S3_BUCKET!, Key: key }), { expiresIn: 86400 });
   }
 
-  // Local fallback
+  // On Vercel without S3: return data URL so PDF is still downloadable
+  if (IS_VERCEL) {
+    const base64 = buffer.toString("base64");
+    return `data:application/pdf;base64,${base64}`;
+  }
+
+  // Local dev fallback
   const dir = path.join(LOCAL_UPLOAD_DIR, "pdfs", userId);
   await ensureLocalDir(dir);
   await fs.writeFile(path.join(dir, `${quoteId}.pdf`), buffer);
