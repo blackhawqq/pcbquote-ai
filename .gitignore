@@ -2,6 +2,8 @@
 .next/
 .env
 .env.local
+.env.production
+.env*.local
 *.db
 public/uploads/
 .vercel
